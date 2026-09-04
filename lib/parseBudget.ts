@@ -29,9 +29,27 @@ function extractFromGrid(rows: string[][]): ParsedItem[] {
   const dataRows = rows.slice(headerRowIdx + 1);
   const items: ParsedItem[] = [];
   for (const row of dataRows) {
-    const name = String(row?.[nameCol] ?? "").trim();
-    const raw = row?.[amountCol];
-    const amount = typeof raw === "number" ? raw : parseFloat(String(raw ?? "").replace(/[,$元 \s]/g, ""));
+    let name = String(row?.[nameCol] ?? "").trim();
+    let raw = row?.[amountCol];
+    let amount = typeof raw === "number" ? raw : parseFloat(String(raw ?? "").replace(/[,$元 \s]/g, ""));
+
+    // Merged cells (common in Word tables) can shift a row's actual cell
+    // count relative to the header, throwing off fixed column indices.
+    // If the expected position doesn't yield a usable value, fall back to
+    // scanning the row itself: last numeric-looking cell as the amount,
+    // first non-empty text cell as the name.
+    if (!Number.isFinite(amount) || amount <= 0) {
+      for (let c = (row?.length ?? 0) - 1; c >= 0; c--) {
+        const v = row[c];
+        const n = typeof v === "number" ? v : parseFloat(String(v ?? "").replace(/[,$元 \s]/g, ""));
+        if (Number.isFinite(n) && n > 0) { amount = n; break; }
+      }
+    }
+    if (!name) {
+      name = (row || []).map((c) => String(c ?? "").trim()).find((c) => c && !/^[\d,.$元\s]+$/.test(c)) ?? "";
+    }
+
+    if (name && /^(合\s*計|小\s*計|總\s*計|合计|小计|总计)$/.test(name)) continue;
     if (name && Number.isFinite(amount) && amount > 0) {
       items.push({ name, allocated: Math.round(amount) });
     }
