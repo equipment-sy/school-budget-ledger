@@ -19,9 +19,9 @@ const input = { padding: "6px 8px", border: `1px solid ${ledgerLine}`, fontSize:
 
 type Me = { id: string; name: string; role: "director" | "leader"; department_id: string | null; department_name: string | null };
 type Dept = { id: string; code: string; name: string };
-type Plan = { id: string; department_id: string; name: string; fiscal_year: number; period_type: "calendar" | "academic"; period_start: string; period_end: string; status: "open" | "closed"; allocated_total: string };
+type Plan = { id: string; department_id: string; name: string; fiscal_year: number; period_type: "calendar" | "academic"; period_start: string; period_end: string; sponsor_org: string | null; status: "open" | "closed"; allocated_total: string };
 type Item = { budget_item_id: string; plan_id: string; department_id: string; name: string; allocated_amount: number; used_amount: string; remaining_amount: string };
-type Tx = { id: string; tx_date: string; amount: number; note: string; handler_name: string | null; voided: boolean; voided_reason: string | null };
+type Tx = { id: string; budget_item_id: string; tx_date: string; amount: number; note: string; handler_name: string | null; voided: boolean; voided_reason: string | null };
 
 export default function Dashboard() {
   const router = useRouter();
@@ -34,7 +34,7 @@ export default function Dashboard() {
   const [expandedItem, setExpandedItem] = useState<string | null>(null);
   const [txByItem, setTxByItem] = useState<Record<string, Tx[]>>({});
   const [showNewPlan, setShowNewPlan] = useState(false);
-  const [newPlan, setNewPlan] = useState({ name: "", year: "2026", periodType: "calendar" as "calendar" | "academic" });
+  const [newPlan, setNewPlan] = useState({ name: "", year: "2026", periodType: "calendar" as "calendar" | "academic", sponsorOrg: "" });
   const [showNewItem, setShowNewItem] = useState<string | null>(null);
   const [newItem, setNewItem] = useState({ name: "", allocated: "" });
   const [txForm, setTxForm] = useState<Record<string, { date: string; amount: string; note: string; handler: string }>>({});
@@ -87,11 +87,11 @@ export default function Dashboard() {
     const res = await fetch("/api/plans", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ department_id: selectedDeptId, name: newPlan.name, fiscal_year: Number(newPlan.year), period_type: newPlan.periodType }),
+      body: JSON.stringify({ department_id: selectedDeptId, name: newPlan.name, fiscal_year: Number(newPlan.year), period_type: newPlan.periodType, sponsor_org: newPlan.sponsorOrg }),
     });
     const body = await res.json();
     if (!res.ok) { setError(body.error); return; }
-    setNewPlan({ name: "", year: "2026", periodType: "calendar" });
+    setNewPlan({ name: "", year: "2026", periodType: "calendar", sponsorOrg: "" });
     setShowNewPlan(false);
     reloadAll();
   }
@@ -195,7 +195,7 @@ export default function Dashboard() {
       setImportRows(parsed.map((p) => ({ name: p.name, allocated: String(p.allocated), status: "pending" as const })));
       setShowNewItem(null);
     } catch {
-      setError("這份檔案讀取失敗，請確認格式是 .xlsx、.xls、.csv、.docx 或 .pdf");
+      setError("這份檔案讀取失敗，請確認格式是 .xlsx、.xls、.csv、.ods、.docx、.odt 或 .pdf");
     }
   }
 
@@ -237,6 +237,22 @@ export default function Dashboard() {
   }
 
   const [exporting, setExporting] = useState(false);
+  const [showChangePw, setShowChangePw] = useState(false);
+  const [pwForm, setPwForm] = useState({ current: "", next: "", confirm: "" });
+  const [pwMsg, setPwMsg] = useState("");
+
+  async function submitChangePassword() {
+    setPwMsg("");
+    if (pwForm.next !== pwForm.confirm) { setPwMsg("兩次輸入的新密碼不一致"); return; }
+    const res = await fetch("/api/change-password", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ current_password: pwForm.current, new_password: pwForm.next }),
+    });
+    const body = await res.json();
+    if (!res.ok) { setPwMsg(body.error); return; }
+    setPwMsg("密碼已更新");
+    setPwForm({ current: "", next: "", confirm: "" });
+  }
 
   async function exportDepartmentExcel() {
     setExporting(true);
@@ -284,6 +300,58 @@ export default function Dashboard() {
     }
   }
 
+  function rocDate(iso: string) {
+    const [y, m, d] = iso.slice(0, 10).split("-").map(Number);
+    return `${y - 1911}年${m}月${d}日`;
+  }
+
+  async function exportPlanReport(plan: Plan) {
+    setError("");
+    const res = await fetch(`/api/transactions?plan_id=${plan.id}`);
+    if (!res.ok) { setError("匯出失敗，請再試一次"); return; }
+    const txs: Tx[] = await res.json();
+    const planItems = items.filter((i) => i.plan_id === plan.id);
+    const nonVoided = txs.filter((t) => !t.voided);
+
+    const allocated = planItems.reduce((s, i) => s + i.allocated_amount, 0);
+    const used = nonVoided.reduce((s, t) => s + Number(t.amount), 0);
+    const remaining = allocated - used;
+
+    const rows: (string | number)[][] = [];
+    rows.push(["臺北市政府教育局辦理各項活動實際支用明細表"]);
+    rows.push([`活動計畫名稱: ${plan.name}`]);
+    rows.push([`委託機關編號及名稱:${plan.sponsor_org || ""}`]);
+    rows.push(["受託機關編號及名稱:05263臺北市立雙園國中"]);
+    rows.push([`經費：原撥${allocated.toLocaleString()}元，實支${used.toLocaleString()}元，節餘${remaining.toLocaleString()}元`]);
+    rows.push([`活動結束日:${rocDate(plan.period_end)}`]);
+    rows.push(["序號", "年", "月", "日", "受款人", "用途別", "摘要", "金額"]);
+
+    let seq = 1;
+    for (const item of planItems) {
+      const itemTxs = nonVoided
+        .filter((t) => t.budget_item_id === item.budget_item_id)
+        .sort((a, b) => a.tx_date.localeCompare(b.tx_date));
+      if (itemTxs.length === 0) continue;
+      let sub = 0;
+      itemTxs.forEach((t, idx) => {
+        const [y, m, d] = t.tx_date.slice(0, 10).split("-").map(Number);
+        rows.push([seq, y - 1911, m, d, t.handler_name || "", idx === 0 ? item.name : "", t.note, Number(t.amount)]);
+        sub += Number(t.amount);
+        seq++;
+      });
+      rows.push(["", "", "", "", "", "", `${item.name}小計`, sub]);
+    }
+    rows.push(["", "", "", "", "", "", "合　計", used]);
+    rows.push(["承辦人", "", "業務主管", "", "主辦會計", "", "機關長官", ""]);
+
+    const ws = XLSX.utils.aoa_to_sheet(rows);
+    ws["!merges"] = [0, 1, 2, 3, 4, 5].map((r) => ({ s: { r, c: 0 }, e: { r, c: 7 } }));
+    ws["!cols"] = [{ wch: 6 }, { wch: 6 }, { wch: 5 }, { wch: 5 }, { wch: 12 }, { wch: 16 }, { wch: 30 }, { wch: 10 }];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "實際支用明細表");
+    XLSX.writeFile(wb, `${plan.name}_實際支用明細表.xlsx`);
+  }
+
   if (!me) return <div style={{ padding: 40 }}>載入中…</div>;
 
   const deptPlans = plans.filter((p) => p.department_id === selectedDeptId);
@@ -303,9 +371,26 @@ export default function Dashboard() {
               帳號管理
             </button>
           )}
+          <button onClick={() => setShowChangePw((v) => !v)} style={{ padding: "8px 14px", border: `1px solid ${ledgerLine}`, background: "transparent" }}>
+            修改密碼
+          </button>
           <button onClick={logout} style={{ padding: "8px 14px", border: `1px solid ${ledgerLine}`, background: "transparent" }}>登出</button>
         </div>
       </div>
+
+      {showChangePw && (
+        <div style={{ margin: "16px 40px", padding: 16, background: "#fff", border: `1px solid ${ledgerLine}`, maxWidth: 360 }}>
+          <p style={{ fontWeight: 600, marginBottom: 10 }}>修改密碼</p>
+          <input type="password" placeholder="目前密碼" style={{ ...input, display: "block", width: "100%", marginBottom: 8 }}
+            value={pwForm.current} onChange={(e) => setPwForm((p) => ({ ...p, current: e.target.value }))} />
+          <input type="password" placeholder="新密碼（至少 6 碼）" style={{ ...input, display: "block", width: "100%", marginBottom: 8 }}
+            value={pwForm.next} onChange={(e) => setPwForm((p) => ({ ...p, next: e.target.value }))} />
+          <input type="password" placeholder="再輸入一次新密碼" style={{ ...input, display: "block", width: "100%", marginBottom: 10 }}
+            value={pwForm.confirm} onChange={(e) => setPwForm((p) => ({ ...p, confirm: e.target.value }))} />
+          {pwMsg && <p style={{ fontSize: 13, color: pwMsg === "密碼已更新" ? stampGreen : stampRed, marginBottom: 10 }}>{pwMsg}</p>}
+          <button onClick={submitChangePassword} style={{ padding: "8px 16px", background: ink, color: "#fff", border: "none" }}>更新密碼</button>
+        </div>
+      )}
 
       {error && <div style={{ margin: "16px 40px", padding: 10, background: "#FBEAE8", color: stampRed, fontSize: 13 }}>{error}</div>}
 
@@ -439,6 +524,8 @@ export default function Dashboard() {
                 <input style={{ ...input, width: 110 }} placeholder={newPlan.periodType === "academic" ? "起始西元年" : "會計年度"} value={newPlan.year} onChange={(e) => setNewPlan((p) => ({ ...p, year: e.target.value }))} />
                 <button onClick={createPlan} style={{ padding: "6px 14px", background: stampGreen, color: "#fff", border: "none" }}>建立</button>
               </div>
+              <input style={{ ...input, width: "100%", marginBottom: 8 }} placeholder="委託機關編號及名稱（選填，例如：05001教育局）"
+                value={newPlan.sponsorOrg} onChange={(e) => setNewPlan((p) => ({ ...p, sponsorOrg: e.target.value }))} />
               <p style={{ fontSize: 12, color: inkSoft, margin: 0 }}>
                 {newPlan.periodType === "academic"
                   ? `學年度請填「開始那一年」的西元年，例如 114 學年度（2025/8/1–2026/7/31）請填 2025。`
@@ -465,6 +552,10 @@ export default function Dashboard() {
                         {plan.period_type === "academic" ? "學年度" : "曆年制"}｜{plan.period_start?.slice(0, 10)} ～ {plan.period_end?.slice(0, 10)}
                       </p>
                     </div>
+                    <button onClick={(e) => { e.stopPropagation(); exportPlanReport(plan); }}
+                      style={{ fontSize: 12, padding: "4px 10px", border: `1px solid ${stampGold}`, color: stampGold, background: "transparent" }}>
+                      📋 支用明細表
+                    </button>
                     {isLeaderHere && !locked && (
                       <button onClick={(e) => { e.stopPropagation(); if (confirm(`確定要將「${plan.name}」關帳嗎？`)) closePlan(plan.id); }}
                         style={{ fontSize: 12, padding: "4px 10px", border: `1px solid ${stampRed}`, color: stampRed, background: "transparent" }}>
@@ -483,7 +574,7 @@ export default function Dashboard() {
                           </button>
                           <label style={{ fontSize: 12, padding: "4px 10px", border: `1px solid ${stampGreen}`, color: stampGreen, background: "transparent", cursor: "pointer" }}>
                             📄 上傳經費概算表
-                            <input type="file" accept=".xlsx,.xls,.csv,.docx,.pdf" style={{ display: "none" }}
+                            <input type="file" accept=".xlsx,.xls,.csv,.docx,.pdf,.ods,.odt" style={{ display: "none" }}
                               onChange={(e) => { const f = e.target.files?.[0]; if (f) handleImportFile(plan.id, f); e.target.value = ""; }} />
                           </label>
                         </div>

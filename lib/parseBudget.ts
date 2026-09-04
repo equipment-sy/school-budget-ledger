@@ -1,5 +1,6 @@
 import * as XLSX from "xlsx";
 import * as mammoth from "mammoth";
+import JSZip from "jszip";
 
 export type ParsedItem = { name: string; allocated: number };
 
@@ -118,10 +119,31 @@ async function parsePdf(file: File): Promise<ParsedItem[]> {
   return extractFromLines(lines);
 }
 
+async function parseOdt(file: File): Promise<ParsedItem[]> {
+  const zip = await JSZip.loadAsync(file);
+  const contentXml = await zip.file("content.xml")?.async("string");
+  if (!contentXml) return [];
+
+  const doc = new DOMParser().parseFromString(contentXml, "application/xml");
+  const tables = Array.from(doc.getElementsByTagName("table:table"));
+
+  for (const table of tables) {
+    const rows = Array.from(table.getElementsByTagName("table:table-row")).map((tr) =>
+      Array.from(tr.getElementsByTagName("table:table-cell")).map((td) => td.textContent?.trim() ?? "")
+    );
+    const items = extractFromGrid(rows);
+    if (items.length > 0) return items;
+  }
+
+  // No usable table — fall back to scanning paragraph text.
+  const paragraphs = Array.from(doc.getElementsByTagName("text:p")).map((p) => p.textContent ?? "");
+  return extractFromLines(paragraphs);
+}
+
 /**
  * Reads an uploaded 經費概算表 entirely in the browser and pulls out
- * (科目名稱, 編列金額) pairs. Supports .xlsx/.xls/.csv (best results —
- * real spreadsheet grid), .docx (reads a table if present, otherwise
+ * (科目名稱, 編列金額) pairs. Supports .xlsx/.xls/.csv/.ods (spreadsheet
+ * grid — best results), .docx/.odt (reads a table if present, otherwise
  * scans paragraph text), and .pdf with a real text layer (typed documents
  * — this does NOT do OCR, so photos and scanned PDFs won't work).
  * Nothing here ever leaves the browser — the raw file is never uploaded.
@@ -129,6 +151,7 @@ async function parsePdf(file: File): Promise<ParsedItem[]> {
 export async function parseBudgetFile(file: File): Promise<ParsedItem[]> {
   const name = file.name.toLowerCase();
   if (name.endsWith(".docx")) return parseDocx(file);
+  if (name.endsWith(".odt")) return parseOdt(file);
   if (name.endsWith(".pdf")) return parsePdf(file);
-  return parseXlsx(file); // .xlsx / .xls / .csv
+  return parseXlsx(file); // .xlsx / .xls / .csv / .ods
 }

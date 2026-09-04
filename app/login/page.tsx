@@ -38,7 +38,7 @@ export default function LoginPage() {
         <p style={{ fontSize: 13, color: "#93762A", marginBottom: 4 }}>教務處．經費控帳系統</p>
         <h1 style={{ fontFamily: '"Noto Serif TC", serif', fontSize: 24, fontWeight: 700, margin: "0 0 20px" }}>登入</h1>
 
-        <label style={{ fontSize: 12, color: "#5B6459" }}>帳號 Email</label>
+        <label style={{ fontSize: 12, color: "#5B6459" }}>帳號</label>
         <input
           value={email}
           onChange={(e) => setEmail(e.target.value)}

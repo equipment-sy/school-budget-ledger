@@ -8,11 +8,16 @@ export async function GET(req: NextRequest) {
 
   const budgetItemId = req.nextUrl.searchParams.get("budget_item_id");
   const departmentId = req.nextUrl.searchParams.get("department_id");
+  const planId = req.nextUrl.searchParams.get("plan_id");
   const month = req.nextUrl.searchParams.get("month"); // "YYYY-MM"
 
   const rows = await withUser(identity.userId, async (query) => {
     if (budgetItemId) {
       const res = await query(`select * from transactions where budget_item_id = $1 order by tx_date, created_at`, [budgetItemId]);
+      return res.rows;
+    }
+    if (planId) {
+      const res = await query(`select * from transactions where plan_id = $1 order by tx_date, created_at`, [planId]);
       return res.rows;
     }
     if (departmentId && month) {
