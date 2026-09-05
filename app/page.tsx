@@ -43,7 +43,6 @@ export default function Dashboard() {
   const [users, setUsers] = useState<any[]>([]);
   const [newUser, setNewUser] = useState({ name: "", email: "", department_id: "" });
   const [createdPassword, setCreatedPassword] = useState<{ email: string; password: string } | null>(null);
-  const [monthTx, setMonthTx] = useState<Tx[]>([]);
   const [importPlanId, setImportPlanId] = useState<string | null>(null);
   const [importRows, setImportRows] = useState<{ name: string; allocated: string; status: "pending" | "ok" | "error"; error?: string }[]>([]);
   const [importing, setImporting] = useState(false);
@@ -62,14 +61,6 @@ export default function Dashboard() {
   }
 
   useEffect(() => { reloadAll(); }, []);
-
-  useEffect(() => {
-    if (!selectedDeptId) return;
-    const month = new Date().toISOString().slice(0, 7);
-    fetch(`/api/transactions?department_id=${selectedDeptId}&month=${month}`)
-      .then((r) => (r.ok ? r.json() : []))
-      .then(setMonthTx);
-  }, [selectedDeptId, plans, items]);
 
   async function loadTx(itemId: string) {
     const res = await fetch(`/api/transactions?budget_item_id=${itemId}`);
@@ -355,187 +346,14 @@ export default function Dashboard() {
   if (!me) return <div style={{ padding: 40 }}>載入中…</div>;
 
   const deptPlans = plans.filter((p) => p.department_id === selectedDeptId);
+  const openPlans = deptPlans.filter((p) => p.status === "open");
+  const closedPlans = [...deptPlans.filter((p) => p.status === "closed")].sort((a, b) =>
+    b.period_end.localeCompare(a.period_end)
+  );
   const isLeaderHere = me.role === "leader" && me.department_id === selectedDeptId;
 
-  return (
-    <div style={{ minHeight: "100vh" }}>
-      <div style={{ padding: "24px 40px", borderBottom: `1px solid ${ledgerLine}`, display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-        <div>
-          <p style={{ fontSize: 13, color: stampGold, margin: 0 }}>教務處．經費控帳系統</p>
-          <h1 style={{ fontFamily: '"Noto Serif TC", serif', fontSize: 28, margin: "4px 0" }}>教務處經費台帳</h1>
-          <p style={{ fontSize: 13, color: inkSoft }}>{me.name}（{me.role === "director" ? "教務主任" : me.department_name}）</p>
-        </div>
-        <div style={{ display: "flex", gap: 8 }}>
-          {me.role === "director" && (
-            <button onClick={() => { setShowUsers((v) => !v); if (!showUsers) loadUsers(); }} style={{ padding: "8px 14px", border: `1px solid ${ink}`, background: "transparent" }}>
-              帳號管理
-            </button>
-          )}
-          <button onClick={() => setShowChangePw((v) => !v)} style={{ padding: "8px 14px", border: `1px solid ${ledgerLine}`, background: "transparent" }}>
-            修改密碼
-          </button>
-          <button onClick={logout} style={{ padding: "8px 14px", border: `1px solid ${ledgerLine}`, background: "transparent" }}>登出</button>
-        </div>
-      </div>
+  function renderPlan(plan: Plan, pi: number) {
 
-      {showChangePw && (
-        <div style={{ margin: "16px 40px", padding: 16, background: "#fff", border: `1px solid ${ledgerLine}`, maxWidth: 360 }}>
-          <p style={{ fontWeight: 600, marginBottom: 10 }}>修改密碼</p>
-          <input type="password" placeholder="目前密碼" style={{ ...input, display: "block", width: "100%", marginBottom: 8 }}
-            value={pwForm.current} onChange={(e) => setPwForm((p) => ({ ...p, current: e.target.value }))} />
-          <input type="password" placeholder="新密碼（至少 6 碼）" style={{ ...input, display: "block", width: "100%", marginBottom: 8 }}
-            value={pwForm.next} onChange={(e) => setPwForm((p) => ({ ...p, next: e.target.value }))} />
-          <input type="password" placeholder="再輸入一次新密碼" style={{ ...input, display: "block", width: "100%", marginBottom: 10 }}
-            value={pwForm.confirm} onChange={(e) => setPwForm((p) => ({ ...p, confirm: e.target.value }))} />
-          {pwMsg && <p style={{ fontSize: 13, color: pwMsg === "密碼已更新" ? stampGreen : stampRed, marginBottom: 10 }}>{pwMsg}</p>}
-          <button onClick={submitChangePassword} style={{ padding: "8px 16px", background: ink, color: "#fff", border: "none" }}>更新密碼</button>
-        </div>
-      )}
-
-      {error && <div style={{ margin: "16px 40px", padding: 10, background: "#FBEAE8", color: stampRed, fontSize: 13 }}>{error}</div>}
-
-      {showUsers && me.role === "director" && (
-        <div style={{ margin: "16px 40px", padding: 16, background: "#fff", border: `1px solid ${ledgerLine}` }}>
-          <p style={{ fontWeight: 600, marginBottom: 10 }}>建立組長帳號</p>
-          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 14 }}>
-            <input style={input} placeholder="姓名" value={newUser.name} onChange={(e) => setNewUser((p) => ({ ...p, name: e.target.value }))} />
-            <input style={input} placeholder="Email" value={newUser.email} onChange={(e) => setNewUser((p) => ({ ...p, email: e.target.value }))} />
-            <select style={input} value={newUser.department_id} onChange={(e) => setNewUser((p) => ({ ...p, department_id: e.target.value }))}>
-              <option value="">選擇組別</option>
-              {depts.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
-            </select>
-            <button onClick={createUser} style={{ padding: "6px 14px", background: stampGreen, color: "#fff", border: "none" }}>建立</button>
-          </div>
-          {createdPassword && (
-            <p style={{ fontSize: 13, background: greenbar, padding: 10, marginBottom: 14 }}>
-              {createdPassword.email} 的密碼：<b className="lg-num">{createdPassword.password}</b>（請直接告訴這位使用者，畫面關閉後不會再顯示）
-            </p>
-          )}
-          <table style={{ width: "100%", fontSize: 13, borderCollapse: "collapse" }}>
-            <thead><tr style={{ borderBottom: `1px solid ${ledgerLine}` }}>
-              <th style={{ textAlign: "left", padding: 6 }}>姓名</th><th style={{ textAlign: "left" }}>Email</th>
-              <th style={{ textAlign: "left" }}>角色</th><th style={{ textAlign: "left" }}>狀態</th><th></th>
-            </tr></thead>
-            <tbody>{users.map((u) => (
-              <tr key={u.id} style={{ borderBottom: `1px solid ${ledgerLine}`, opacity: u.active === false ? 0.5 : 1 }}>
-                <td style={{ padding: 6 }}>{u.name}</td><td>{u.email}</td>
-                <td>{u.role === "director" ? "教務主任" : "組長"}</td>
-                <td style={{ color: u.active === false ? stampRed : stampGreen }}>{u.active === false ? "已停用" : "使用中"}</td>
-                <td style={{ textAlign: "right" }}>
-                  {u.role === "leader" && (
-                    <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
-                      <button onClick={() => resetPassword(u.id)} style={{ fontSize: 11, padding: "4px 8px", border: `1px solid ${ledgerLine}`, background: "transparent", cursor: "pointer" }}>重設密碼</button>
-                      <button onClick={() => toggleActive(u.id, u.active === false)}
-                        style={{ fontSize: 11, padding: "4px 8px", border: `1px solid ${u.active === false ? stampGreen : stampRed}`, color: u.active === false ? stampGreen : stampRed, background: "transparent", cursor: "pointer" }}>
-                        {u.active === false ? "啟用" : "停用"}
-                      </button>
-                    </div>
-                  )}
-                </td>
-              </tr>
-            ))}</tbody>
-          </table>
-        </div>
-      )}
-
-      <div style={{ display: "flex" }}>
-        <div style={{ width: 200, borderRight: `1px solid ${ledgerLine}` }}>
-          {depts.map((d) => (
-            <button key={d.id} onClick={() => setSelectedDeptId(d.id)}
-              style={{ display: "block", width: "100%", textAlign: "left", padding: "12px 16px", border: "none",
-                borderBottom: `1px solid ${ledgerLine}`, borderLeft: d.id === selectedDeptId ? `3px solid ${stampGreen}` : "3px solid transparent",
-                background: d.id === selectedDeptId ? "#EFE9D8" : "transparent", cursor: "pointer" }}>
-              {d.name}
-            </button>
-          ))}
-        </div>
-
-        <div style={{ flex: 1, padding: "24px 40px" }}>
-          {(() => {
-            const openPlanIds = new Set(deptPlans.filter((p) => p.status === "open").map((p) => p.id));
-            const deptItems = items.filter((i) => i.department_id === selectedDeptId && openPlanIds.has(i.plan_id));
-            const totals = deptItems.reduce(
-              (acc, i) => { acc.allocated += i.allocated_amount; acc.used += Number(i.used_amount); return acc; },
-              { allocated: 0, used: 0 }
-            );
-            const monthTotal = monthTx.filter((t) => !t.voided).reduce((s, t) => s + Number(t.amount), 0);
-            const sorted = [...deptItems].sort((a, b) => Number(a.remaining_amount) - Number(b.remaining_amount));
-            return (
-              <div style={{ marginBottom: 24, background: "#fff", border: `1px solid ${ledgerLine}` }}>
-                <div style={{ display: "flex", flexWrap: "wrap", gap: 28, padding: "16px 18px", borderBottom: `1px solid ${ledgerLine}` }}>
-                  <div><p style={{ fontSize: 11, color: inkSoft, margin: 0 }}>本年度總編列</p><p className="lg-num" style={{ fontSize: 18, fontWeight: 700, margin: "2px 0 0" }}>{fmt(totals.allocated)}</p></div>
-                  <div><p style={{ fontSize: 11, color: inkSoft, margin: 0 }}>本年度已支出</p><p className="lg-num" style={{ fontSize: 18, fontWeight: 700, margin: "2px 0 0" }}>{fmt(totals.used)}</p></div>
-                  <div><p style={{ fontSize: 11, color: inkSoft, margin: 0 }}>本年度賸餘</p><p className="lg-num" style={{ fontSize: 18, fontWeight: 700, margin: "2px 0 0", color: totals.allocated - totals.used < 0 ? stampRed : stampGreen }}>{fmt(totals.allocated - totals.used)}</p></div>
-                  <div><p style={{ fontSize: 11, color: inkSoft, margin: 0 }}>本月支出</p><p className="lg-num" style={{ fontSize: 18, fontWeight: 700, margin: "2px 0 0" }}>{fmt(monthTotal)}</p></div>
-                </div>
-                <table style={{ width: "100%", fontSize: 13, borderCollapse: "collapse" }}>
-                  <thead><tr style={{ borderBottom: `1px solid ${ledgerLine}` }}>
-                    <th style={{ textAlign: "left", padding: "8px 12px" }}>科目</th>
-                    <th style={{ textAlign: "right" }}>編列</th><th style={{ textAlign: "right" }}>已用</th>
-                    <th style={{ textAlign: "right", paddingRight: 12 }}>賸餘</th><th style={{ width: 120, paddingRight: 12 }}>使用率</th>
-                  </tr></thead>
-                  <tbody>
-                    {sorted.map((i, idx) => {
-                      const remaining = Number(i.remaining_amount);
-                      const pct = i.allocated_amount ? (Number(i.used_amount) / i.allocated_amount) * 100 : 0;
-                      const color = remaining < 0 ? stampRed : remaining < i.allocated_amount * 0.15 ? stampGold : stampGreen;
-                      return (
-                        <tr key={i.budget_item_id} style={{ background: idx % 2 ? greenbar : "#fff", borderBottom: `1px solid ${ledgerLine}` }}>
-                          <td style={{ padding: "8px 12px" }}>{i.name}</td>
-                          <td className="lg-num" style={{ textAlign: "right" }}>{fmt(i.allocated_amount)}</td>
-                          <td className="lg-num" style={{ textAlign: "right" }}>{fmt(Number(i.used_amount))}</td>
-                          <td className="lg-num" style={{ textAlign: "right", paddingRight: 12, fontWeight: 700, color }}>{fmt(remaining)}</td>
-                          <td style={{ paddingRight: 12 }}><div style={{ height: 6, background: ledgerLine }}><div style={{ height: "100%", width: `${Math.min(100, Math.max(0, pct))}%`, background: color }} /></div></td>
-                        </tr>
-                      );
-                    })}
-                    {sorted.length === 0 && (
-                      <tr><td colSpan={5} style={{ padding: 16, textAlign: "center", color: inkSoft }}>目前沒有使用中的科目</td></tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            );
-          })()}
-
-          <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 16 }}>
-            <h2 style={{ fontFamily: '"Noto Serif TC", serif', fontSize: 20 }}>{depts.find((d) => d.id === selectedDeptId)?.name}</h2>
-            <div style={{ display: "flex", gap: 8 }}>
-              <button onClick={exportDepartmentExcel} disabled={exporting}
-                style={{ padding: "8px 14px", border: `1px solid ${stampGreen}`, color: stampGreen, background: "transparent" }}>
-                {exporting ? "匯出中…" : "⬇ 匯出 Excel"}
-              </button>
-              {isLeaderHere && (
-                <button onClick={() => setShowNewPlan((v) => !v)} style={{ padding: "8px 14px", border: `1px solid ${ink}`, background: "transparent" }}>
-                  ＋ 新增經費計畫
-                </button>
-              )}
-            </div>
-          </div>
-
-          {showNewPlan && (
-            <div style={{ marginBottom: 20, padding: 14, background: "#fff", border: `1px solid ${ledgerLine}` }}>
-              <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
-                <input style={{ ...input, flex: 1 }} placeholder="計畫名稱" value={newPlan.name} onChange={(e) => setNewPlan((p) => ({ ...p, name: e.target.value }))} />
-                <select style={input} value={newPlan.periodType} onChange={(e) => setNewPlan((p) => ({ ...p, periodType: e.target.value as "calendar" | "academic" }))}>
-                  <option value="calendar">曆年制（1/1–12/31）</option>
-                  <option value="academic">學年度（8/1–次年7/31）</option>
-                </select>
-                <input style={{ ...input, width: 110 }} placeholder={newPlan.periodType === "academic" ? "起始西元年" : "會計年度"} value={newPlan.year} onChange={(e) => setNewPlan((p) => ({ ...p, year: e.target.value }))} />
-                <button onClick={createPlan} style={{ padding: "6px 14px", background: stampGreen, color: "#fff", border: "none" }}>建立</button>
-              </div>
-              <input style={{ ...input, width: "100%", marginBottom: 8 }} placeholder="委託機關編號及名稱（選填，例如：05001教育局）"
-                value={newPlan.sponsorOrg} onChange={(e) => setNewPlan((p) => ({ ...p, sponsorOrg: e.target.value }))} />
-              <p style={{ fontSize: 12, color: inkSoft, margin: 0 }}>
-                {newPlan.periodType === "academic"
-                  ? `學年度請填「開始那一年」的西元年，例如 114 學年度（2025/8/1–2026/7/31）請填 2025。`
-                  : `曆年制請填會計年度的西元年，例如 115 年度（2026/1/1–2026/12/31）請填 2026。`}
-              </p>
-            </div>
-          )}
-
-          <div style={{ border: `1px solid ${ledgerLine}` }}>
-            {deptPlans.map((plan, pi) => {
               const open = expandedPlan === plan.id;
               const locked = plan.status === "closed";
               const planItems = items.filter((i) => i.plan_id === plan.id);
@@ -686,8 +504,149 @@ export default function Dashboard() {
                   )}
                 </div>
               );
-            })}
-            {deptPlans.length === 0 && <div style={{ padding: 20, textAlign: "center", color: inkSoft, fontSize: 13 }}>尚無經費計畫</div>}
+            
+  }
+
+  return (
+    <div style={{ minHeight: "100vh" }}>
+      <div style={{ padding: "24px 40px", borderBottom: `1px solid ${ledgerLine}`, display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+        <div>
+          <p style={{ fontSize: 13, color: stampGold, margin: 0 }}>教務處．經費控帳系統</p>
+          <h1 style={{ fontFamily: '"Noto Serif TC", serif', fontSize: 28, margin: "4px 0" }}>教務處經費台帳</h1>
+          <p style={{ fontSize: 13, color: inkSoft }}>{me.name}（{me.role === "director" ? "教務主任" : me.department_name}）</p>
+        </div>
+        <div style={{ display: "flex", gap: 8 }}>
+          {me.role === "director" && (
+            <button onClick={() => { setShowUsers((v) => !v); if (!showUsers) loadUsers(); }} style={{ padding: "8px 14px", border: `1px solid ${ink}`, background: "transparent" }}>
+              帳號管理
+            </button>
+          )}
+          <button onClick={() => setShowChangePw((v) => !v)} style={{ padding: "8px 14px", border: `1px solid ${ledgerLine}`, background: "transparent" }}>
+            修改密碼
+          </button>
+          <button onClick={logout} style={{ padding: "8px 14px", border: `1px solid ${ledgerLine}`, background: "transparent" }}>登出</button>
+        </div>
+      </div>
+
+      {showChangePw && (
+        <div style={{ margin: "16px 40px", padding: 16, background: "#fff", border: `1px solid ${ledgerLine}`, maxWidth: 360 }}>
+          <p style={{ fontWeight: 600, marginBottom: 10 }}>修改密碼</p>
+          <input type="password" placeholder="目前密碼" style={{ ...input, display: "block", width: "100%", marginBottom: 8 }}
+            value={pwForm.current} onChange={(e) => setPwForm((p) => ({ ...p, current: e.target.value }))} />
+          <input type="password" placeholder="新密碼（至少 6 碼）" style={{ ...input, display: "block", width: "100%", marginBottom: 8 }}
+            value={pwForm.next} onChange={(e) => setPwForm((p) => ({ ...p, next: e.target.value }))} />
+          <input type="password" placeholder="再輸入一次新密碼" style={{ ...input, display: "block", width: "100%", marginBottom: 10 }}
+            value={pwForm.confirm} onChange={(e) => setPwForm((p) => ({ ...p, confirm: e.target.value }))} />
+          {pwMsg && <p style={{ fontSize: 13, color: pwMsg === "密碼已更新" ? stampGreen : stampRed, marginBottom: 10 }}>{pwMsg}</p>}
+          <button onClick={submitChangePassword} style={{ padding: "8px 16px", background: ink, color: "#fff", border: "none" }}>更新密碼</button>
+        </div>
+      )}
+
+      {error && <div style={{ margin: "16px 40px", padding: 10, background: "#FBEAE8", color: stampRed, fontSize: 13 }}>{error}</div>}
+
+      {showUsers && me.role === "director" && (
+        <div style={{ margin: "16px 40px", padding: 16, background: "#fff", border: `1px solid ${ledgerLine}` }}>
+          <p style={{ fontWeight: 600, marginBottom: 10 }}>建立組長帳號</p>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 14 }}>
+            <input style={input} placeholder="姓名" value={newUser.name} onChange={(e) => setNewUser((p) => ({ ...p, name: e.target.value }))} />
+            <input style={input} placeholder="Email" value={newUser.email} onChange={(e) => setNewUser((p) => ({ ...p, email: e.target.value }))} />
+            <select style={input} value={newUser.department_id} onChange={(e) => setNewUser((p) => ({ ...p, department_id: e.target.value }))}>
+              <option value="">選擇組別</option>
+              {depts.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+            </select>
+            <button onClick={createUser} style={{ padding: "6px 14px", background: stampGreen, color: "#fff", border: "none" }}>建立</button>
+          </div>
+          {createdPassword && (
+            <p style={{ fontSize: 13, background: greenbar, padding: 10, marginBottom: 14 }}>
+              {createdPassword.email} 的密碼：<b className="lg-num">{createdPassword.password}</b>（請直接告訴這位使用者，畫面關閉後不會再顯示）
+            </p>
+          )}
+          <table style={{ width: "100%", fontSize: 13, borderCollapse: "collapse" }}>
+            <thead><tr style={{ borderBottom: `1px solid ${ledgerLine}` }}>
+              <th style={{ textAlign: "left", padding: 6 }}>姓名</th><th style={{ textAlign: "left" }}>Email</th>
+              <th style={{ textAlign: "left" }}>角色</th><th style={{ textAlign: "left" }}>狀態</th><th></th>
+            </tr></thead>
+            <tbody>{users.map((u) => (
+              <tr key={u.id} style={{ borderBottom: `1px solid ${ledgerLine}`, opacity: u.active === false ? 0.5 : 1 }}>
+                <td style={{ padding: 6 }}>{u.name}</td><td>{u.email}</td>
+                <td>{u.role === "director" ? "教務主任" : "組長"}</td>
+                <td style={{ color: u.active === false ? stampRed : stampGreen }}>{u.active === false ? "已停用" : "使用中"}</td>
+                <td style={{ textAlign: "right" }}>
+                  {u.role === "leader" && (
+                    <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
+                      <button onClick={() => resetPassword(u.id)} style={{ fontSize: 11, padding: "4px 8px", border: `1px solid ${ledgerLine}`, background: "transparent", cursor: "pointer" }}>重設密碼</button>
+                      <button onClick={() => toggleActive(u.id, u.active === false)}
+                        style={{ fontSize: 11, padding: "4px 8px", border: `1px solid ${u.active === false ? stampGreen : stampRed}`, color: u.active === false ? stampGreen : stampRed, background: "transparent", cursor: "pointer" }}>
+                        {u.active === false ? "啟用" : "停用"}
+                      </button>
+                    </div>
+                  )}
+                </td>
+              </tr>
+            ))}</tbody>
+          </table>
+        </div>
+      )}
+
+      <div style={{ display: "flex" }}>
+        <div style={{ width: 200, borderRight: `1px solid ${ledgerLine}` }}>
+          {depts.map((d) => (
+            <button key={d.id} onClick={() => setSelectedDeptId(d.id)}
+              style={{ display: "block", width: "100%", textAlign: "left", padding: "12px 16px", border: "none",
+                borderBottom: `1px solid ${ledgerLine}`, borderLeft: d.id === selectedDeptId ? `3px solid ${stampGreen}` : "3px solid transparent",
+                background: d.id === selectedDeptId ? "#EFE9D8" : "transparent", cursor: "pointer" }}>
+              {d.name}
+            </button>
+          ))}
+        </div>
+
+        <div style={{ flex: 1, padding: "24px 40px" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 16 }}>
+            <h2 style={{ fontFamily: '"Noto Serif TC", serif', fontSize: 20 }}>{depts.find((d) => d.id === selectedDeptId)?.name}</h2>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button onClick={exportDepartmentExcel} disabled={exporting}
+                style={{ padding: "8px 14px", border: `1px solid ${stampGreen}`, color: stampGreen, background: "transparent" }}>
+                {exporting ? "匯出中…" : "⬇ 匯出 Excel"}
+              </button>
+              {isLeaderHere && (
+                <button onClick={() => setShowNewPlan((v) => !v)} style={{ padding: "8px 14px", border: `1px solid ${ink}`, background: "transparent" }}>
+                  ＋ 新增經費計畫
+                </button>
+              )}
+            </div>
+          </div>
+
+          {showNewPlan && (
+            <div style={{ marginBottom: 20, padding: 14, background: "#fff", border: `1px solid ${ledgerLine}` }}>
+              <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
+                <input style={{ ...input, flex: 1 }} placeholder="計畫名稱" value={newPlan.name} onChange={(e) => setNewPlan((p) => ({ ...p, name: e.target.value }))} />
+                <select style={input} value={newPlan.periodType} onChange={(e) => setNewPlan((p) => ({ ...p, periodType: e.target.value as "calendar" | "academic" }))}>
+                  <option value="calendar">曆年制（1/1–12/31）</option>
+                  <option value="academic">學年度（8/1–次年7/31）</option>
+                </select>
+                <input style={{ ...input, width: 110 }} placeholder={newPlan.periodType === "academic" ? "起始西元年" : "會計年度"} value={newPlan.year} onChange={(e) => setNewPlan((p) => ({ ...p, year: e.target.value }))} />
+                <button onClick={createPlan} style={{ padding: "6px 14px", background: stampGreen, color: "#fff", border: "none" }}>建立</button>
+              </div>
+              <input style={{ ...input, width: "100%", marginBottom: 8 }} placeholder="委託機關編號及名稱（選填，例如：05001教育局）"
+                value={newPlan.sponsorOrg} onChange={(e) => setNewPlan((p) => ({ ...p, sponsorOrg: e.target.value }))} />
+              <p style={{ fontSize: 12, color: inkSoft, margin: 0 }}>
+                {newPlan.periodType === "academic"
+                  ? `學年度請填「開始那一年」的西元年，例如 114 學年度（2025/8/1–2026/7/31）請填 2025。`
+                  : `曆年制請填會計年度的西元年，例如 115 年度（2026/1/1–2026/12/31）請填 2026。`}
+              </p>
+            </div>
+          )}
+
+          <h3 style={{ fontSize: 15, fontWeight: 700, margin: "0 0 12px" }}>使用中計畫</h3>
+          <div style={{ border: `1px solid ${ledgerLine}`, marginBottom: 28 }}>
+            {openPlans.map(renderPlan)}
+            {openPlans.length === 0 && <div style={{ padding: 20, textAlign: "center", color: inkSoft, fontSize: 13 }}>目前沒有使用中的計畫</div>}
+          </div>
+
+          <h3 style={{ fontSize: 15, fontWeight: 700, margin: "0 0 12px", color: inkSoft }}>已關帳計畫</h3>
+          <div style={{ border: `1px solid ${ledgerLine}` }}>
+            {closedPlans.map(renderPlan)}
+            {closedPlans.length === 0 && <div style={{ padding: 20, textAlign: "center", color: inkSoft, fontSize: 13 }}>目前沒有已關帳的計畫</div>}
           </div>
         </div>
       </div>
